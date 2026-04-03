@@ -170,18 +170,22 @@ def solve_waveguide_fundamental_bvp(r, kappa_squared):
 
     return mode_00
 
-def solve_waveguide_fundamental_ivp(r, kappa_squared):
+def solve_waveguide_fundamental_ivp(r, kappa_squared, m=0):
     """
     Solve for the waveguide fundamental mode as an initial value problem
     Equation to solve:
         Grad^2 E + kappa(r)^2 E = 0
         E(0) = 1, E'(0) = 0
+    Assuming that E = u(r) exp(i m phi) for azimuthal mode number m
 
     Parameters:
     r : array_like
         Radial coordinate (m)
     kappa_squared : array_like
         Transverse wavenumber profile squared (m^-2)
+    m : int
+        Azimuthal mode number (default 0 for fundamental mode)
+    
     Returns:
     mode_00 : array_like
         Fundamental mode profile (normalized)
@@ -193,9 +197,9 @@ def solve_waveguide_fundamental_ivp(r, kappa_squared):
         u, v = y
         k2 = kappa2_interp(r)
         if r == 0:
-            return [v, -k2 * u / 2]
+            return [v, (-k2 + m**2) / 2]
         else:
-            return [v, -k2 * u - v / r]
+            return [v, (-k2 + m**2) * u - v / r]
 
     # Initial conditions: u(0) = 1, u'(0) = 0
     y0 = [1.0, 0.0]
@@ -299,7 +303,7 @@ def calculate_eta(r, free_space_mode, quasibound_mode, r_out):
 
 
 if __name__ == "__main__":
-    # Example of parabolic density profile
+    # Replicating the conditions in Clark et. al. 2000
     r_ch = 20e-6  # Channel radius (m)
     r_cutoff = 20e-6  # Density cutoff radius (m)
     shock_flat = 5e-6  # Shock transition width (m)
@@ -312,7 +316,7 @@ if __name__ == "__main__":
     r = np.linspace(1e-6, 1000e-6, 1000)  # Radial grid (m)
     n_e = truncated_parabolic_channel(r, r_ch, r_cutoff, shock_flat, shock_taper, n_e0, delta_ne)
     k0 = 2 * np.pi / lam  # Free space wavenumber (m^-1)
-    beta = k0 * 0.9999
+    beta = k0 * 0.999777
     kappa0 = np.sqrt(k0**2 - beta**2)
     kappa2 = transverse_wavenumber(n_e, n_cr, k0, beta)
 
