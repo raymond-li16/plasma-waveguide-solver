@@ -306,7 +306,7 @@ def calculate_eta(r, free_space_mode, quasibound_mode, r_out):
 
     return eta
 
-def find_eigenmodes(r, k0, beta_arr, n_e, n_cr, n_fwhm_points=10, threshold=0.1, m=0):
+def find_eigenmodes(r, k0, beta_arr, n_e, n_cr, n_fwhm_points=10, threshold=0.1, m=0, max_resolve_loops=5):
     """
     Searches for eigenmodes of the waveguide by scanning over a range of beta values
     and looking for peaks in the eta function. Each peak in eta corresponds to an
@@ -335,6 +335,9 @@ def find_eigenmodes(r, k0, beta_arr, n_e, n_cr, n_fwhm_points=10, threshold=0.1,
         Minimum height of peaks in eta to consider as potential eigenmodes (default 0.1)
     m : int
         Azimuthal mode number (default 0 for fundamental mode)
+    max_resolve_loops : int
+        Maximum number of iterations to resolve peaks (default 5). 
+        This is to prevent infinite loops in case of very narrow peaks.
 
     Returns:
     beta_modes : list of float
@@ -352,7 +355,7 @@ def find_eigenmodes(r, k0, beta_arr, n_e, n_cr, n_fwhm_points=10, threshold=0.1,
 
     unresolved_peaks = check_peaks_resolved(eta_all, n_fwhm_points, threshold)
 
-    while len(unresolved_peaks) > 0:
+    while len(unresolved_peaks) > 0 and max_resolve_loops > 0:
         unresolved_betas = beta_all[unresolved_peaks] / k0
         print(f"Found unresolved peaks at beta/k0 = {unresolved_betas}, refining scan around these peaks...")
         for peak_idx in unresolved_peaks:
@@ -368,6 +371,7 @@ def find_eigenmodes(r, k0, beta_arr, n_e, n_cr, n_fwhm_points=10, threshold=0.1,
             beta_all, eta_all = merge_high_res_data(beta_all, eta_all, beta_fine, eta_fine)
 
         unresolved_peaks = check_peaks_resolved(eta_all, n_fwhm_points, threshold)
+        max_resolve_loops -= 1
 
     # Find the final peaks in the merged data to extract mode values
     peaks, _ = find_peaks(eta_all, height=threshold)
@@ -413,6 +417,41 @@ def find_etas(r, k0, beta_arr, n_e, n_cr, m=0):
         eta_all.append(eta)
     return np.array(eta_all)
 
+def find_peaks_rel_prominence(eta_all, threshold=0.1):
+    """
+    Finds peaks in eta_all that have a relative prominence above the given threshold.
+    Relative prominence is defined as the prominence of the peak divided by its height.
+
+    Parameters:
+    eta_all : numpy array
+        Array of eta values corresponding to all beta values scanned
+    threshold : float
+        Minimum relative prominence of peaks to consider (prominence / peak height)
+
+    Returns:
+    peaks : numpy array
+        Indices of peaks in eta_all that have relative prominence above the threshold
+    properties : dict
+        Properties of the peaks returned by scipy.signal.find_peaks, filtered to include only peaks above the threshold
+    """
+    # Find all peaks first with no prominence filter
+    peaks, properties = find_peaks(eta_all, prominence=0)
+
+    if len(peaks) == 0:
+        return np.array([]), {}
+
+    # Compute relative prominence: prominence normalized by peak height
+    prominences = properties["prominences"]
+    peak_heights = eta_all[peaks]
+    relative_prominences = prominences / peak_heights
+
+    # Filter peaks by relative prominence threshold
+    valid_mask = relative_prominences >= threshold
+    filtered_peaks = peaks[valid_mask]
+    filtered_properties = {key: val[valid_mask] for key, val in properties.items()}
+
+    return filtered_peaks, filtered_properties
+
 def check_peaks_resolved(eta_all, n_fwhm_points, threshold=0.1):
     """
     Checks if each peak in eta_all is resolved by at least n_fwhm_points points. 
@@ -424,17 +463,17 @@ def check_peaks_resolved(eta_all, n_fwhm_points, threshold=0.1):
     n_fwhm_points : int
         Minimum number of points to resolve the fwhm of each peak in eta
     threshold : float
-        Minimum height of peaks to consider (default 0.1)
+        Minimum relative prominence of peaks to consider (prominence / peak height, default 0.1)
 
     Returns:
     unresolved_peaks : list of int
         List of indices of peaks that are not resolved. If all peaks are resolved, this list will be empty.
     """
-    # Find peaks above the threshold
-    peaks, _ = find_peaks(eta_all, prominence=threshold)
+    # Find all peaks first with no prominence filter
+    peaks, _ = find_peaks_rel_prominence(eta_all, threshold)
 
     if len(peaks) == 0:
-        return True, []
+        return []
 
     # Use rel_height=0.5 to measure width at half the peak's prominence,
     # which accounts for a non-zero baseline by measuring from the peak's
@@ -503,10 +542,8 @@ def calculate_L_att(beta_all, eta_all, threshold=0.1):
         List of attenuation lengths for each mode (m)
     """
     # Find peaks above the threshold
-    peaks, _ = find_peaks(eta_all, prominence=threshold)
-
-    if len(peaks) == 0:
-        return []
+    # Find all peaks first with no prominence filter
+    peaks, _ = find_peaks_rel_prominence(eta_all, threshold)
 
     # peak_widths returns widths in units of array indices, so we need to
     # convert to physical units. We use the interpolated left and right
@@ -565,7 +602,7 @@ if __name__ == "__main__":
     ax2.set_ylim(bottom=0)
     ax1.set_xlim(left=0, right=100)
     ax1.set_xlabel('Radius (µm)')
-    ax1.set_ylabel('$\kappa^2$ (m^-2)', color='b')
+    ax1.set_ylabel(r'$\kappa^2$ (m^-2)', color='b')
     # ax1.set_ylim(bottom=-np.amax(kappa2), top=np.amax(kappa2))
 
     fig.tight_layout()
